@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Handschrift">
+<title>Handschrift</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: #d9dce1;
+    font-family: -apple-system, system-ui, sans-serif; color: #111;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
+  #bg, #ink { position: fixed; inset: 0; width: 100vw; height: 100vh; touch-action: none; }
+
+  .bar {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+    background: #fff; padding: 6px; border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.15);
+  }
+  #bar { top: calc(env(safe-area-inset-top) + 10px); z-index: 10; }
+  #modes { bottom: calc(env(safe-area-inset-bottom) + 12px); z-index: 20; }
+  .bar button, .btn {
+    border: 0; background: #f1f2f4; border-radius: 10px; padding: 9px 13px;
+    font-size: 16px; color: #222; touch-action: manipulation; font-family: inherit;
+  }
+  .bar button.on, .btn.on, .btn.primary { background: #2563eb; color: #fff; }
+  .btn.danger { color: #b91c1c; }
+
+  .panel {
+    position: fixed; inset: 0; background: #f4f5f7; overflow-y: auto; z-index: 5; display: none;
+    padding: calc(env(safe-area-inset-top) + 20px) 16px 120px; box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
+  }
+  .panel.show { display: block; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h2 { margin: 0 0 4px; font-size: 24px; }
+  .muted { color: #666; font-size: 14px; line-height: 1.4; }
+  .card { background: #fff; border-radius: 16px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-top: 14px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row.center { justify-content: center; }
+
+  #charLabel { font-size: 54px; font-weight: 600; text-align: center; line-height: 1.1; }
+  #charInfo { text-align: center; margin-top: 2px; }
+  #trainCanvas {
+    display: block; margin: 12px auto; background: #fff; border-radius: 12px;
+    touch-action: none; box-shadow: inset 0 0 0 1px #d0d4da;
+  }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 6px; margin-top: 10px; }
+  .cell {
+    height: 42px; border-radius: 8px; background: #eef0f3; display: flex;
+    align-items: center; justify-content: center; font-size: 18px;
+  }
+  .cell.part { background: #fef3c7; }
+  .cell.done { background: #dcfce7; }
+  .cell.cur { outline: 2px solid #2563eb; }
+
+  textarea {
+    width: 100%; min-height: 120px; font-size: 18px; font-family: inherit;
+    border: 1px solid #d0d4da; border-radius: 12px; padding: 12px; box-sizing: border-box;
+    -webkit-user-select: text; user-select: text; resize: vertical;
+  }
+  #preview { width: 100%; background: #fff; border-radius: 12px; display: block; }
+  #missing { color: #b45309; font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<canvas id="ink"></canvas>
+
+<!-- Notizbuch-Werkzeuge -->
+<div id="bar" class="bar">
+  <button id="pen" class="on">✏️ Stift</button>
+  <button id="eraser">🧽 Radierer</button>
+  <button id="undo">↩︎ Zurück</button>
+  <button id="addPage">＋ Seite</button>
+  <button id="finger">☝️ Finger: Bewegen</button>
+  <button id="clear">🗑</button>
+</div>
+
+<!-- Schrift anlernen -->
+<div id="trainPanel" class="panel">
+  <div class="wrap">
+    <h2>Schrift anlernen</h2>
+    <div class="muted">Schreib jedes Zeichen in das Feld. Kleinbuchstaben wie „a“ sitzen zwischen der gestrichelten blauen Linie und der durchgezogenen Grundlinie, Großbuchstaben und „h, k, l“ reichen bis zur oberen grauen Linie, „g, p, y“ nach unten. Pro Zeichen 2 Proben, damit es natürlicher aussieht.</div>
+    <div class="card">
+      <div id="charLabel">a</div>
+      <div id="charInfo" class="muted"></div>
+      <canvas id="trainCanvas"></canvas>
+      <div class="row center">
+        <button class="btn" id="tPrev">← Zurück</button>
+        <button class="btn" id="tUndo">↩︎ Strich</button>
+        <button class="btn" id="tClear">Leeren</button>
+        <button class="btn" id="tSkip">Überspringen →</button>
+        <button class="btn primary" id="tSave">✓ Speichern</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <b id="progress"></b>
+        <button class="btn danger" id="tDelete">Proben dieses Zeichens löschen</button>
+      </div>
+      <div id="grid"></div>
+    </div>
+    <div class="card">
+      <b>Sichern</b>
+      <div class="muted" style="margin:4px 0 10px">Deine Schrift ist nur in dieser App auf diesem Gerät gespeichert. Exportier sie ab und zu als Datei, damit sie nicht verloren geht.</div>
+      <div class="row">
+        <button class="btn" id="exportBtn">⬆︎ Schrift exportieren</button>
+        <button class="btn" id="importBtn">⬇︎ Schrift importieren</button>
+        <input type="file" id="importFile" accept=".json,application/json" hidden>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Umwandeln -->
+<div id="convPanel" class="panel">
+  <div class="wrap">
+    <h2>In meine Schrift umwandeln</h2>
+    <div class="muted">Text eintippen oder einfügen. Andere Handschrift bekommst du so rein: mit dem Apple Pencil direkt ins Textfeld schreiben (Scribble), oder bei einem Foto den Text markieren, kopieren (Live Text) und hier einfügen. Beides erkennt das iPad selbst.</div>
+    <div class="card">
+      <textarea id="convText" placeholder="Hier schreiben, tippen oder einfügen …"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="btn on" id="sizeSmall">Klein (1 Linie)</button>
+        <button class="btn" id="sizeLarge">Groß (2 Linien)</button>
+        <button class="btn" id="reroll">🎲 Neu würfeln</button>
+        <button class="btn primary" id="insertBtn">Ins Notizbuch einfügen</button>
+      </div>
+      <div id="missing"></div>
+    </div>
+    <div class="card">
+      <b>Vorschau</b>
+      <div id="previewMsg" class="muted" style="margin:6px 0"></div>
+      <canvas id="preview"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Modus-Leiste -->
+<div id="modes" class="bar">
+  <button id="mTrain">✍️ Anlernen</button>
+  <button id="mConv">🔄 Umwandeln</button>
+  <button id="mNote">📓 Notizbuch</button>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const r1 = v => Math.round(v * 10) / 10;
+const r2 = v => Math.round(v * 100) / 100;
+
+function loadJSON(key, fallback) {
+  try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; }
+  catch (e) { return fallback; }
+}
+function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); }
+  catch (e) { alert('Speichern hat nicht geklappt (Speicher voll?). Exportier deine Schrift als Datei.'); }
+}
+
+// =====================================================================
+//  Gemeinsames Zeichnen von Strichen
+// =====================================================================
+const PEN_W = 2.4, ERASER_W = 26;
+
+function widthAt(st, p) {
+  if (st.t === 'e') return st.w;
+  return st.w * (0.4 + p * 1.2);
+}
+
+function drawStroke(ctx, st, from) {
+  ctx.globalCompositeOperation = st.t === 'e' ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = ctx.fillStyle = '#111';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const p = st.p;
+  if (p.length === 1 && from <= 1) {
+    ctx.beginPath();
+    ctx.arc(p[0][0], p[0][1], widthAt(st, p[0][2]) / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = Math.max(1, from); i < p.length; i++) {
+    const a = p[i - 1], b = p[i];
+    ctx.lineWidth = widthAt(st, b[2]);
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function pressureOf(e) {
+  return e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
+}
+
+let dpr = window.devicePixelRatio || 1;
+let penSeen = false;   // sobald der Pencil benutzt wurde, malt der Finger im Anlern-Feld nicht mehr
+
+// =====================================================================
+//  Notizbuch
+// =====================================================================
+const bg = $('bg'), ink = $('ink');
+const bctx = bg.getContext('2d'), ictx = ink.getContext('2d');
+const PAGE_W = 820, PAGE_H = 1160, GAP = 30, LINE = 32, MARGIN = 50;
+
+let data = loadJSON('notiz-data', null);
+if (!data || !Array.isArray(data.strokes)) data = { pages: 1, strokes: [] };
+const saveNotes = () => saveJSON('notiz-data', data);
+
+let view = { x: 0, y: 0, s: 1 };
+let tool = 'pen';
+let fingerDraws = false;
+
+function fitPage() {
+  const s = Math.min((innerWidth - 40) / PAGE_W, 1.2);
+  view.s = s;
+  view.x = (innerWidth - PAGE_W * s) / 2;
+  view.y = 90;
+}
+
+function resizeNotebook() {
+  for (const c of [bg, ink]) {
+    c.width = Math.round(innerWidth * dpr);
+    c.height = Math.round(innerHeight * dpr);
+  }
+  drawAll();
+}
+
+function applyT(ctx) {
+  ctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.x, dpr * view.y);
+}
+function toWorld(x, y) {
+  return [(x - view.x) / view.s, (y - view.y) / view.s];
+}
+
+function pageLines(page) {
+  const top = page * (PAGE_H + GAP);
+  const ys = [];
+  for (let y = top + LINE * 3; y < top + PAGE_H - 10; y += LINE) ys.push(y);
+  return ys;
+}
+
+function drawBg() {
+  bctx.setTransform(1, 0, 0, 1, 0, 0);
+  bctx.clearRect(0, 0, bg.width, bg.height);
+  applyT(bctx);
+  for (let i = 0; i < data.pages; i++) {
+    const top = i * (PAGE_H + GAP);
+    bctx.fillStyle = '#fff';
+    bctx.fillRect(0, top, PAGE_W, PAGE_H);
+    bctx.strokeStyle = '#c9d7ee';
+    bctx.lineWidth = 1 / view.s;
+    for (const y of pageLines(i)) {
+      bctx.beginPath(); bctx.moveTo(0, y); bctx.lineTo(PAGE_W, y); bctx.stroke();
+    }
+    bctx.strokeStyle = '#b8bcc4';
+    bctx.strokeRect(0, top, PAGE_W, PAGE_H);
+  }
+}
+
+function drawInk() {
+  ictx.setTransform(1, 0, 0, 1, 0, 0);
+  ictx.clearRect(0, 0, ink.width, ink.height);
+  applyT(ictx);
+  for (const st of data.strokes) drawStroke(ictx, st, 1);
+}
+
+function drawAll() { drawBg(); drawInk(); }
+
+let raf = 0;
+function requestDraw() {
+  if (raf) return;
+  raf = requestAnimationFrame(() => { raf = 0; drawAll(); });
+}
+
+// --- Eingabe Notizbuch ---
+const touches = new Map();
+let cur = null;
+let gesture = null;
+
+function gestureState() {
+  const pts = [...touches.values()];
+  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+  const d = pts.length > 1 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) : 0;
+  return { cx, cy, d };
+}
+function startGesture() {
+  gesture = touches.size ? { start: gestureState(), v: { ...view } } : null;
+}
+function addPoint(e) {
+  const [x, y] = toWorld(e.clientX, e.clientY);
+  cur.st.p.push([r1(x), r1(y), r2(pressureOf(e))]);
+}
+
+ink.addEventListener('pointerdown', e => {
+  ink.setPointerCapture(e.pointerId);
+  const isTouch = e.pointerType === 'touch';
+  if (e.pointerType === 'pen') penSeen = true;
+  if (isTouch) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  const canDraw = !isTouch || (fingerDraws && touches.size === 1);
+  if (canDraw && !cur) {
+    const st = { t: tool === 'eraser' ? 'e' : 'p', w: tool === 'eraser' ? ERASER_W : PEN_W, p: [] };
+    data.strokes.push(st);
+    cur = { id: e.pointerId, st, touch: isTouch };
+    addPoint(e);
+    applyT(ictx);
+    drawStroke(ictx, st, 0);
+    return;
+  }
+  if (isTouch) {
+    if (cur && cur.touch) { data.strokes.pop(); cur = null; requestDraw(); }
+    startGesture();
+  }
+});
+
+ink.addEventListener('pointermove', e => {
+  if (cur && e.pointerId === cur.id) {
+    const from = cur.st.p.length;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    for (const ev of (evs.length ? evs : [e])) addPoint(ev);
+    applyT(ictx);
+    drawStroke(ictx, cur.st, from);
+    return;
+  }
+  if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!gesture) return;
+    const g = gestureState(), s0 = gesture.start, v0 = gesture.v;
+    let s = (s0.d > 0 && g.d > 0) ? v0.s * g.d / s0.d : v0.s;
+    s = Math.min(6, Math.max(0.25, s));
+    const wx = (s0.cx - v0.x) / v0.s, wy = (s0.cy - v0.y) / v0.s;
+    view.s = s;
+    view.x = g.cx - wx * s;
+    view.y = g.cy - wy * s;
+    requestDraw();
+  }
+});
+
+function endPointer(e) {
+  if (cur && e.pointerId === cur.id) { cur = null; saveNotes(); }
+  if (touches.has(e.pointerId)) { touches.delete(e.pointerId); startGesture(); }
+}
+ink.addEventListener('pointerup', endPointer);
+ink.addEventListener('pointercancel', endPointer);
+ink.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+ink.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (e.ctrlKey) {
+    const s = Math.min(6, Math.max(0.25, view.s * Math.exp(-e.deltaY * 0.01)));
+    const [wx, wy] = toWorld(e.clientX, e.clientY);
+    view.s = s;
+    view.x = e.clientX - wx * s;
+    view.y = e.clientY - wy * s;
+  } else {
+    view.x -= e.deltaX;
+    view.y -= e.deltaY;
+  }
+  requestDraw();
+}, { passive: false });
+
+// --- Knöpfe Notizbuch ---
+function setTool(t) {
+  tool = t;
+  $('pen').classList.toggle('on', t === 'pen');
+  $('eraser').classList.toggle('on', t === 'eraser');
+}
+$('pen').onclick = () => setTool('pen');
+$('eraser').onclick = () => setTool('eraser');
+$('undo').onclick = () => {
+  // eingefügter Text wird als Ganzes rückgängig gemacht
+  const last = data.strokes[data.strokes.length - 1];
+  if (last && last.g) {
+    while (data.strokes.length && data.strokes[data.strokes.length - 1].g === last.g) data.strokes.pop();
+  } else {
+    data.strokes.pop();
+  }
+  saveNotes(); requestDraw();
+};
+$('addPage').onclick = () => { data.pages++; saveNotes(); requestDraw(); };
+$('finger').onclick = () => {
+  fingerDraws = !fingerDraws;
+  $('finger').textContent = fingerDraws ? '☝️ Finger: Schreiben' : '☝️ Finger: Bewegen';
+  $('finger').classList.toggle('on', fingerDraws);
+};
+$('clear').onclick = () => {
+  if (confirm('Ganzes Notizbuch löschen?')) {
+    data = { pages: 1, strokes: [] }; saveNotes(); fitPage(); requestDraw();
+  }
+};
+
+// =====================================================================
+//  Schrift anlernen
+// =====================================================================
+// Kasten 300 x 300 Einheiten mit Hilfslinien
+const BOX = 300, ASC = 40, XH = 110, BASE = 200, DESC = 260;
+const TARGET = 2, MAX_SAMPLES = 5, TRAIN_W = 9;
+const CHARS = [
+  ...'abcdefghijklmnopqrstuvwxyz',
+  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  ...'äöüÄÖÜß',
+  ...'0123456789',
+  ...'.,!?-:;()"\'/+=%&'
+];
+
+let glyphs = loadJSON('notiz-glyphs', {});
+if (typeof glyphs !== 'object' || Array.isArray(glyphs)) glyphs = {};
+const saveGlyphs = () => saveJSON('notiz-glyphs', glyphs);
+const countOf = c => (glyphs[c] || []).length;
+
+const tc = $('trainCanvas'), tctx = tc.getContext('2d');
+let tk = 1;
+let tStrokes = [];
+let tCur = null;
+let curChar = CHARS.find(c => countOf(c) < TARGET) || CHARS[0];
+
+function charKind(c) {
+  if (/[0-9]/.test(c)) return 'Ziffer';
+  if (c.toLowerCase() !== c.toUpperCase() || c === 'ß') {
+    return c === c.toLowerCase() ? 'Kleinbuchstabe' : 'Großbuchstabe';
+  }
+  return 'Satzzeichen';
+}
+
+function sizeTrainer() {
+  const size = Math.max(220, Math.min(440, innerWidth - 72));
+  tk = size / BOX;
+  tc.style.width = tc.style.height = size + 'px';
+  tc.width = tc.height = Math.round(size * dpr);
+  drawTrainer();
+}
+
+function drawTrainer() {
+  tctx.setTransform(1, 0, 0, 1, 0, 0);
+  tctx.clearRect(0, 0, tc.width, tc.height);
+  tctx.setTransform(dpr * tk, 0, 0, dpr * tk, 0, 0);
+  const guide = (y, color, dashed) => {
+    tctx.strokeStyle = color;
+    tctx.lineWidth = 1.5 / tk;
+    tctx.setLineDash(dashed ? [6 / tk, 6 / tk] : []);
+    tctx.beginPath(); tctx.moveTo(0, y); tctx.lineTo(BOX, y); tctx.stroke();
+  };
+  guide(ASC, '#d1d5db', true);
+  guide(XH, '#93c5fd', true);
+  guide(BASE, '#2563eb', false);
+  guide(DESC, '#d1d5db', true);
+  tctx.setLineDash([]);
+  for (const st of tStrokes) drawStroke(tctx, st, 1);
+}
+
+function tPos(e) {
+  const r = tc.getBoundingClientRect();
+  return [(e.clientX - r.left) / tk, (e.clientY - r.top) / tk];
+}
+function tAdd(e) {
+  const [x, y] = tPos(e);
+  tCur.st.p.push([r1(x), r1(y), r2(pressureOf(e))]);
+}
+
+tc.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'pen') penSeen = true;
+  if (e.pointerType === 'touch' && penSeen) return;   // Handballen ignorieren
+  if (tCur) return;
+  tc.setPointerCapture(e.pointerId);
+  const st = { t: 'p', w: TRAIN_W, p: [] };
+  tStrokes.push(st);
+  tCur = { id: e.pointerId, st };
+  tAdd(e);
+  tctx.setTransform(dpr * tk, 0, 0, dpr * tk, 0, 0);
+  drawStroke(tctx, st, 0);
+});
+tc.addEventListener('pointermove', e => {
+  if (!tCur || e.pointerId !== tCur.id) return;
+  const from = tCur.st.p.length;
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+  for (const ev of (evs.length ? evs : [e])) tAdd(ev);
+  tctx.setTransform(dpr * tk, 0, 0, dpr * tk, 0, 0);
+  drawStroke(tctx, tCur.st, from);
+});
+const tEnd = e => { if (tCur && e.pointerId === tCur.id) tCur = null; };
+tc.addEventListener('pointerup', tEnd);
+tc.addEventListener('pointercancel', tEnd);
+tc.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+
+function nextNeeded(from) {
+  const i = CHARS.indexOf(from);
+  for (let k = 1; k <= CHARS.length; k++) {
+    const c = CHARS[(i + k) % CHARS.length];
+    if (countOf(c) < TARGET) return c;
+  }
+  return null;
+}
+
+function goTo(c) { curChar = c; tStrokes = []; updateTrainer(); }
+
+function saveSample() {
+  if (!tStrokes.length) return;
+  let minX = Infinity, maxX = -Infinity;
+  for (const st of tStrokes) for (const p of st.p) { minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]); }
+  const sample = { s: tStrokes.map(st => st.p), minX: r1(minX), maxX: r1(maxX) };
+  if (!glyphs[curChar]) glyphs[curChar] = [];
+  glyphs[curChar].push(sample);
+  if (glyphs[curChar].length > MAX_SAMPLES) glyphs[curChar].shift();
+  saveGlyphs();
+  tStrokes = [];
+  if (countOf(curChar) >= TARGET) curChar = nextNeeded(curChar) || curChar;
+  updateTrainer();
+}
+
+const cells = {};
+function buildGrid() {
+  const grid = $('grid');
+  for (const c of CHARS) {
+    const d = document.createElement('div');
+    d.className = 'cell';
+    d.textContent = c;
+    d.onclick = () => goTo(c);
+    grid.appendChild(d);
+    cells[c] = d;
+  }
+}
+
+function updateTrainer() {
+  $('charLabel').textContent = curChar;
+  const n = countOf(curChar);
+  $('charInfo').textContent = charKind(curChar) + ' · ' +
+    (n < TARGET ? `Probe ${n + 1} von ${TARGET}` : `fertig (${n} Proben) – du kannst noch mehr hinzufügen`);
+  let done = 0;
+  for (const c of CHARS) {
+    const k = countOf(c);
+    if (k >= TARGET) done++;
+    cells[c].className = 'cell' + (k >= TARGET ? ' done' : k > 0 ? ' part' : '') + (c === curChar ? ' cur' : '');
+  }
+  $('progress').textContent = `${done} von ${CHARS.length} Zeichen angelernt`;
+  drawTrainer();
+}
+
+$('tSave').onclick = saveSample;
+$('tClear').onclick = () => { tStrokes = []; drawTrainer(); };
+$('tUndo').onclick = () => { tStrokes.pop(); drawTrainer(); };
+$('tSkip').onclick = () => goTo(CHARS[(CHARS.indexOf(curChar) + 1) % CHARS.length]);
+$('tPrev').onclick = () => goTo(CHARS[(CHARS.indexOf(curChar) - 1 + CHARS.length) % CHARS.length]);
+$('tDelete').onclick = () => {
+  if (countOf(curChar) && confirm(`Alle Proben von „${curChar}“ löschen?`)) {
+    delete glyphs[curChar]; saveGlyphs(); updateTrainer();
+  }
+};
+
+// --- Export / Import ---
+$('exportBtn').onclick = async () => {
+  const json = JSON.stringify({ v: 1, glyphs });
+  const file = new File([json], 'meine-schrift.json', { type: 'application/json' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'Meine Schrift' });
+      return;
+    }
+  } catch (e) { if (e.name === 'AbortError') return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = 'meine-schrift.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$('importBtn').onclick = () => $('importFile').click();
+$('importFile').onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const obj = JSON.parse(await f.text());
+    if (!obj || typeof obj.glyphs !== 'object') throw new Error('falsches Format');
+    if (!confirm('Importierte Schrift übernehmen? Deine jetzige wird ersetzt.')) return;
+    glyphs = obj.glyphs; saveGlyphs(); updateTrainer();
+  } catch (err) {
+    alert('Die Datei konnte nicht gelesen werden.');
+  }
+};
+
+// =====================================================================
+//  Umwandeln
+// =====================================================================
+const SIZES = { small: { s: 0.145, step: 1 }, large: { s: 0.29, step: 2 } };
+const GAP_U = 16, SPACE_U = 70;
+let sizeKey = 'small';
+let seed = Math.floor(Math.random() * 1e9);
+
+function rng(seedVal) {   // kleiner Zufallsgenerator mit festem Startwert (Vorschau = Einfügen)
+  let a = seedVal >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function getSample(ch, rnd) {
+  let arr = glyphs[ch];
+  if (!arr || !arr.length) {
+    const alt = ch === ch.toLowerCase() ? ch.toUpperCase() : ch.toLowerCase();
+    if (alt.length === 1) arr = glyphs[alt];
+  }
+  if (!arr || !arr.length) return null;
+  return arr[Math.floor(rnd() * arr.length)];
+}
+
+function layoutText(text) {
+  const { s } = SIZES[sizeKey];
+  const rnd = rng(seed);
+  const maxW = PAGE_W - 2 * MARGIN;
+  const missing = new Set();
+  const lines = [];
+  for (const para of text.replace(/\r/g, '').split('\n')) {
+    let line = [], w = 0;
+    for (const word of para.split(/[ \t]+/)) {
+      if (!word) continue;
+      const items = [...word].map(ch => {
+        const sm = getSample(ch, rnd);
+        if (!sm) { missing.add(ch); return { sm: null, adv: SPACE_U * s }; }
+        const j = { rot: (rnd() - 0.5) * 0.06, sc: 1 + (rnd() - 0.5) * 0.08, dy: (rnd() - 0.5) * 5, dx: (rnd() - 0.5) * 5 };
+        return { sm, j, adv: ((sm.maxX - sm.minX) * j.sc + GAP_U + j.dx) * s };
+      });
+      const ww = items.reduce((a, b) => a + b.adv, 0);
+      if (line.length && w + SPACE_U * s + ww > maxW) { lines.push(line); line = []; w = 0; }
+      if (line.length) { line.push({ sm: null, adv: SPACE_U * s }); w += SPACE_U * s; }
+      line.push(...items);
+      w += ww;
+    }
+    lines.push(line);
+  }
+  return { lines, missing, s };
+}
+
+function glyphStrokes(item, x, baseline, s, groupId) {
+  const { sm, j } = item;
+  const sc = s * j.sc;
+  const cx = (sm.maxX - sm.minX) / 2;
+  const cos = Math.cos(j.rot), sin = Math.sin(j.rot);
+  const w = PEN_W * (s / SIZES.small.s);
+  return sm.s.map(pts => ({
+    t: 'p', w, g: groupId,
+    p: pts.map(([px, py, pr]) => {
+      const lx = px - sm.minX - cx, ly = py - BASE;
+      const rx = lx * cos - ly * sin, ry = lx * sin + ly * cos;
+      return [r1(x + (rx + cx) * sc), r1(baseline + ry * sc + j.dy * s), pr];
+    })
+  }));
+}
+
+function renderLayout(L, baselineFor, groupId) {
+  const out = [];
+  L.lines.forEach((line, i) => {
+    const b = baselineFor(i);
+    let x = MARGIN;
+    for (const it of line) {
+      if (it.sm) out.push(...glyphStrokes(it, x, b, L.s, groupId));
+      x += it.adv;
+    }
+  });
+  return out;
+}
+
+const pv = $('preview'), pctx = pv.getContext('2d');
+
+function updatePreview() {
+  const text = $('convText').value;
+  const anyGlyphs = Object.keys(glyphs).some(c => glyphs[c] && glyphs[c].length);
+  const L = layoutText(text);
+  const step = SIZES[sizeKey].step;
+
+  $('missing').textContent = L.missing.size
+    ? 'Noch nicht angelernt (wird als Lücke gelassen): ' + [...L.missing].join(' ')
+    : '';
+  $('previewMsg').textContent = !anyGlyphs
+    ? 'Lern zuerst ein paar Buchstaben unter „Anlernen“ an.'
+    : (!text.trim() ? 'Schreib oben etwas rein.' : '');
+
+  const first = LINE * (1 + step);
+  const n = Math.max(1, L.lines.length);
+  const H = first + (n - 1) * LINE * step + LINE * 2;
+  const cssW = pv.clientWidth || 600;
+  const ps = cssW / PAGE_W;
+  pv.style.height = (H * ps) + 'px';
+  pv.width = Math.round(cssW * dpr);
+  pv.height = Math.round(H * ps * dpr);
+
+  pctx.setTransform(dpr * ps, 0, 0, dpr * ps, 0, 0);
+  pctx.clearRect(0, 0, PAGE_W, H);
+  pctx.strokeStyle = '#c9d7ee';
+  pctx.lineWidth = 1 / ps;
+  for (let y = LINE * 2; y < H; y += LINE) {
+    pctx.beginPath(); pctx.moveTo(0, y); pctx.lineTo(PAGE_W, y); pctx.stroke();
+  }
+  const strokes = renderLayout(L, i => first + i * LINE * step, 0);
+  for (const st of strokes) drawStroke(pctx, st, 1);
+}
+
+function insertIntoNotebook() {
+  const L = layoutText($('convText').value);
+  if (!L.lines.some(l => l.some(it => it.sm))) return;
+  const { s, step } = SIZES[sizeKey];
+
+  // unter das bisher Geschriebene setzen
+  let maxY = -Infinity;
+  for (const st of data.strokes) if (st.t === 'p') for (const p of st.p) maxY = Math.max(maxY, p[1]);
+  const PH = PAGE_H + GAP;
+  let page = maxY === -Infinity ? 0 : Math.max(0, Math.floor(maxY / PH));
+  let ys = pageLines(page);
+  const minB = maxY === -Infinity ? -Infinity : maxY + (BASE - ASC) * s + 6;
+  let idx = ys.findIndex(y => y >= minB);
+  if (idx === -1) { page++; ys = pageLines(page); idx = step - 1; }
+  else idx = Math.max(idx, step - 1);
+
+  const baselines = [];
+  for (let i = 0; i < L.lines.length; i++) {
+    if (idx >= ys.length) { page++; ys = pageLines(page); idx = step - 1; }
+    baselines.push(ys[idx]);
+    idx += step;
+  }
+  data.pages = Math.max(data.pages, page + 1);
+  data.strokes.push(...renderLayout(L, i => baselines[i], Date.now()));
+  saveNotes();
+
+  showMode('note');
+  view.y = 120 - (baselines[0] - LINE * 2) * view.s;
+  requestDraw();
+}
+
+let pvRaf = 0;
+$('convText').addEventListener('input', () => {
+  if (pvRaf) return;
+  pvRaf = requestAnimationFrame(() => { pvRaf = 0; updatePreview(); });
+});
+function setSize(k) {
+  sizeKey = k;
+  $('sizeSmall').classList.toggle('on', k === 'small');
+  $('sizeLarge').classList.toggle('on', k === 'large');
+  updatePreview();
+}
+$('sizeSmall').onclick = () => setSize('small');
+$('sizeLarge').onclick = () => setSize('large');
+$('reroll').onclick = () => { seed = Math.floor(Math.random() * 1e9); updatePreview(); };
+$('insertBtn').onclick = insertIntoNotebook;
+
+// =====================================================================
+//  Modi
+// =====================================================================
+let mode = 'note';
+function showMode(m) {
+  mode = m;
+  $('trainPanel').classList.toggle('show', m === 'train');
+  $('convPanel').classList.toggle('show', m === 'conv');
+  $('bar').style.display = m === 'note' ? 'flex' : 'none';
+  $('mTrain').classList.toggle('on', m === 'train');
+  $('mConv').classList.toggle('on', m === 'conv');
+  $('mNote').classList.toggle('on', m === 'note');
+  if (m === 'train') { sizeTrainer(); updateTrainer(); }
+  if (m === 'conv') updatePreview();
+  if (m === 'note') requestDraw();
+}
+$('mTrain').onclick = () => showMode('train');
+$('mConv').onclick = () => showMode('conv');
+$('mNote').onclick = () => showMode('note');
+
+window.addEventListener('resize', () => {
+  dpr = window.devicePixelRatio || 1;
+  resizeNotebook();
+  if (mode === 'train') sizeTrainer();
+  if (mode === 'conv') updatePreview();
+});
+
+// Start
+buildGrid();
+fitPage();
+resizeNotebook();
+const hasGlyphs = Object.keys(glyphs).some(c => glyphs[c] && glyphs[c].length);
+showMode(hasGlyphs ? 'conv' : 'train');
+</script>
+</body>
+</html>
