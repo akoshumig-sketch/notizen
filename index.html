@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Handschrift">
+<title>Handschrift</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: #d9dce1;
+    font-family: -apple-system, system-ui, sans-serif; color: #111;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
+  #bg, #ink { position: fixed; inset: 0; width: 100vw; height: 100vh; touch-action: none; }
+
+  .bar {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+    background: #fff; padding: 6px; border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.15);
+  }
+  #bar { top: calc(env(safe-area-inset-top) + 10px); z-index: 10; }
+  #modes { bottom: calc(env(safe-area-inset-bottom) + 12px); z-index: 20; }
+  .bar button, .btn {
+    border: 0; background: #f1f2f4; border-radius: 10px; padding: 9px 13px;
+    font-size: 16px; color: #222; touch-action: manipulation; font-family: inherit;
+  }
+  .bar button.on, .btn.on, .btn.primary { background: #2563eb; color: #fff; }
+  .btn.danger { color: #b91c1c; }
+
+  .panel {
+    position: fixed; inset: 0; background: #f4f5f7; overflow-y: auto; z-index: 5; display: none;
+    padding: calc(env(safe-area-inset-top) + 20px) 16px 120px; box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
+  }
+  .panel.show { display: block; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h2 { margin: 0 0 4px; font-size: 24px; }
+  .muted { color: #666; font-size: 14px; line-height: 1.4; }
+  .card { background: #fff; border-radius: 16px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-top: 14px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .row.center { justify-content: center; }
+
+  #charLabel { font-size: 54px; font-weight: 600; text-align: center; line-height: 1.1; }
+  #charInfo { text-align: center; margin-top: 2px; }
+  #charHint { text-align: center; margin-top: 6px; font-size: 16px; color: #1d4ed8; font-weight: 500; }
+  #trainCanvas {
+    display: block; margin: 12px auto; background: #fff; border-radius: 12px;
+    touch-action: none; box-shadow: inset 0 0 0 1px #d0d4da;
+  }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 6px; margin-top: 10px; }
+  .cell {
+    height: 42px; border-radius: 8px; background: #eef0f3; display: flex;
+    align-items: center; justify-content: center; font-size: 18px;
+  }
+  .cell.part { background: #fef3c7; }
+  .cell.done { background: #dcfce7; }
+  .cell.cur { outline: 2px solid #2563eb; }
+
+  textarea {
+    width: 100%; min-height: 120px; font-size: 18px; font-family: inherit;
+    border: 1px solid #d0d4da; border-radius: 12px; padding: 12px; box-sizing: border-box;
+    -webkit-user-select: text; user-select: text; resize: vertical;
+  }
+  #preview { width: 100%; background: #fff; border-radius: 12px; display: block; }
+  #missing { color: #b45309; font-size: 14px; margin-top: 8px; }
+  select {
+    font-size: 16px; font-family: inherit; padding: 8px 10px; border-radius: 10px;
+    border: 1px solid #d0d4da; background: #fff; color: #111; max-width: 100%;
+  }
+  #doneMsg { color: #15803d; font-weight: 600; margin-top: 10px; }
+  .step { font-weight: 700; font-size: 17px; margin-bottom: 4px; }
+  .card { position: relative; }
+  #exBtn { padding: 7px 12px; font-size: 15px; }
+  #sentPrompt { font-size: 22px; margin: 12px 0 2px; }
+  #sentCanvas {
+    display: block; margin: 10px auto; background: #fff; border-radius: 12px;
+    touch-action: none; box-shadow: inset 0 0 0 1px #d0d4da;
+  }
+  .btn.dangerfill { background: #dc2626; color: #fff; }
+
+  #modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 50;
+    display: none; align-items: center; justify-content: center; padding: 20px;
+  }
+  #modal.show { display: flex; }
+  .mbox { background: #fff; border-radius: 16px; padding: 18px; width: 100%; max-width: 420px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  #mText { font-size: 17px; margin-bottom: 10px; }
+  #mInput {
+    width: 100%; box-sizing: border-box; font-size: 17px; font-family: inherit; padding: 10px 12px;
+    border: 1px solid #d0d4da; border-radius: 10px; -webkit-user-select: text; user-select: text;
+  }
+  #mErr { color: #b91c1c; font-size: 14px; margin-top: 6px; min-height: 1em; }
+  #toast {
+    position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 80px);
+    transform: translateX(-50%) translateY(20px); background: #111; color: #fff;
+    padding: 10px 16px; border-radius: 12px; font-size: 15px; z-index: 60;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; max-width: 90vw; text-align: center;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<canvas id="ink"></canvas>
+
+<!-- Notizbuch-Werkzeuge -->
+<div id="bar" class="bar">
+  <button id="pen" class="on">✏️ Stift</button>
+  <button id="eraser">🧽 Radierer</button>
+  <button id="undo">↩︎ Zurück</button>
+  <button id="addPage">＋ Seite</button>
+  <button id="finger">☝️ Finger: Bewegen</button>
+  <button id="clear">🗑</button>
+</div>
+
+<!-- Schrift anlernen -->
+<div id="trainPanel" class="panel">
+  <div class="wrap">
+    <h2>Schrift anlernen</h2>
+    <div class="muted">In drei Schritten: Buchstaben einzeln schreiben, dann ein paar Sätze, dann das Profil speichern.</div>
+
+    <div class="card">
+      <div class="row">
+        <b>Profil:</b>
+        <select id="profSel"></select>
+        <button class="btn" id="profNew">＋ Neues Profil</button>
+        <button class="btn" id="profRename">✎ Umbenennen</button>
+        <button class="btn danger" id="profDel">🗑 Löschen</button>
+      </div>
+      <div class="muted" style="margin-top:8px">Für eine zweite Schrift (z. B. Schönschrift oder die von jemand anderem) leg ein neues Profil an.</div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between; margin-bottom:4px">
+        <div class="step" style="margin:0">Schritt 1 · Buchstaben</div>
+        <button class="btn" id="exBtn">💡 Beispiel</button>
+      </div>
+      <div class="muted">Der <b style="color:#1d4ed8">blaue Bereich</b> zeigt, wo das Zeichen hingehört. Die dicke Linie ist die Grundlinie, auf der alles steht. Schreib so groß, dass das Zeichen den blauen Bereich ausfüllt.<br><b>Schreib das Zeichen 2-mal nebeneinander</b>, mit etwas Abstand. Jedes wird als eigene Probe gespeichert.</div>
+      <div class="row" style="margin-top:8px"><span class="muted">Zeilengröße:</span><button class="btn on" id="lsNormal">Normal (wie GoodNotes)</button><button class="btn" id="lsBig">Größer</button></div>
+      <div id="charLabel">a</div>
+      <div id="charInfo" class="muted"></div>
+      <div id="charHint"></div>
+      <canvas id="trainCanvas"></canvas>
+      <div class="row center">
+        <button class="btn" id="tPrev">← Zurück</button>
+        <button class="btn" id="tUndo">↩︎ Strich</button>
+        <button class="btn" id="tClear">Leeren</button>
+        <button class="btn" id="tSkip">Überspringen →</button>
+        <button class="btn primary" id="tSave">✓ Speichern</button>
+      </div>
+      <div class="row" style="justify-content:space-between; margin-top:16px">
+        <b id="progress"></b>
+        <button class="btn danger" id="tDelete">Proben dieses Zeichens löschen</button>
+      </div>
+      <div id="grid"></div>
+    </div>
+
+    <div class="card">
+      <div class="step">Schritt 2 · Sätze</div>
+      <div class="muted">Schreib den Satz so, wie du normal schreibst, auf die Linien: Kleinbuchstaben in den blauen Bereich, Großbuchstaben und „h, k, l“ bis zur Oberlinie, „g, p, y“ bis zur Unterlinie. Wenn er nicht in eine Zeile passt, mach einfach in der nächsten weiter. Daraus lernt die App, wie eng deine Buchstaben stehen und wie groß deine Wortabstände sind, damit der umgewandelte Text so dicht oder locker aussieht wie bei dir. Neue Buchstabenformen lernt sie aus den Sätzen nicht, die kommen aus Schritt 1.</div>
+      <div id="sentPrompt"></div>
+      <div id="sentInfo" class="muted"></div>
+      <canvas id="sentCanvas"></canvas>
+      <div class="row center">
+        <button class="btn" id="sUndo">↩︎ Strich</button>
+        <button class="btn" id="sClear">Leeren</button>
+        <button class="btn" id="sSkip">Anderer Satz →</button>
+        <button class="btn primary" id="sSave">✓ Satz speichern</button>
+      </div>
+      <div id="sentResult" class="muted" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="step">Schritt 3 · Profil speichern</div>
+      <div id="saveStatus" class="muted" style="margin-bottom:10px"></div>
+      <button class="btn primary" id="profSave">💾 Profil speichern</button>
+      <div id="doneMsg"></div>
+    </div>
+
+    <div class="card">
+      <b>Sichern</b>
+      <div class="muted" style="margin:4px 0 10px">Profile sind nur in dieser App auf diesem Gerät gespeichert. Exportier sie ab und zu als Datei, damit sie nicht verloren gehen. Ein importiertes Profil wird als neues Profil hinzugefügt.</div>
+      <div class="row">
+        <button class="btn" id="exportBtn">⬆︎ Profil exportieren</button>
+        <button class="btn" id="importBtn">⬇︎ Profil importieren</button>
+        <input type="file" id="importFile" accept=".json,application/json" hidden>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- eigenes Dialogfenster (statt Browser-Popups) -->
+<div id="modal">
+  <div class="mbox">
+    <div id="mText"></div>
+    <input id="mInput" type="text" autocomplete="off">
+    <div id="mErr"></div>
+    <div class="row" style="justify-content:flex-end; margin-top:12px">
+      <button class="btn" id="mCancel">Abbrechen</button>
+      <button class="btn primary" id="mOk">OK</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<!-- Umwandeln -->
+<div id="convPanel" class="panel">
+  <div class="wrap">
+    <h2>In meine Schrift umwandeln</h2>
+    <div class="muted">Text eintippen oder einfügen. Andere Handschrift bekommst du so rein: mit dem Apple Pencil direkt ins Textfeld schreiben (Scribble), oder bei einem Foto den Text markieren, kopieren (Live Text) und hier einfügen. Beides erkennt das iPad selbst.</div>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <b>In Profil umwandeln:</b>
+        <select id="convSel"></select>
+      </div>
+      <textarea id="convText" placeholder="Hier schreiben, tippen oder einfügen …"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="btn on" id="sizeSmall">Klein (1 Linie)</button>
+        <button class="btn" id="sizeLarge">Groß (2 Linien)</button>
+        <button class="btn" id="reroll">🎲 Neu würfeln</button>
+        <button class="btn primary" id="insertBtn">Ins Notizbuch einfügen</button>
+      </div>
+      <div id="missing"></div>
+    </div>
+    <div class="card">
+      <b>Vorschau</b>
+      <div id="previewMsg" class="muted" style="margin:6px 0"></div>
+      <canvas id="preview"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Modus-Leiste -->
+<div id="modes" class="bar">
+  <button id="mTrain">✍️ Anlernen</button>
+  <button id="mConv">🔄 Umwandeln</button>
+  <button id="mNote">📓 Notizbuch</button>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const r1 = v => Math.round(v * 10) / 10;
+const r2 = v => Math.round(v * 100) / 100;
+
+function loadJSON(key, fallback) {
+  try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; }
+  catch (e) { return fallback; }
+}
+function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); }
+  catch (e) { toast('Speichern hat nicht geklappt (Speicher voll?). Exportier deine Profile als Datei.'); }
+}
+
+// =====================================================================
+//  Gemeinsames Zeichnen von Strichen
+// =====================================================================
+const PEN_W = 2.4, ERASER_W = 26;
+
+function widthAt(st, p) {
+  if (st.t === 'e') return st.w;
+  return st.w * (0.4 + p * 1.2);
+}
+
+function drawStroke(ctx, st, from) {
+  ctx.globalCompositeOperation = st.t === 'e' ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = ctx.fillStyle = '#111';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  const p = st.p;
+  if (p.length === 1 && from <= 1) {
+    ctx.beginPath();
+    ctx.arc(p[0][0], p[0][1], widthAt(st, p[0][2]) / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = Math.max(1, from); i < p.length; i++) {
+    const a = p[i - 1], b = p[i];
+    ctx.lineWidth = widthAt(st, b[2]);
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function pressureOf(e) {
+  return e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
+}
+
+let dpr = window.devicePixelRatio || 1;
+let penSeen = false;   // sobald der Pencil benutzt wurde, malt der Finger im Anlern-Feld nicht mehr
+
+// =====================================================================
+//  Notizbuch
+// =====================================================================
+const bg = $('bg'), ink = $('ink');
+const bctx = bg.getContext('2d'), ictx = ink.getContext('2d');
+const PAGE_W = 820, PAGE_H = 1160, GAP = 30, LINE = 32, MARGIN = 50;
+
+let data = loadJSON('notiz-data', null);
+if (!data || !Array.isArray(data.strokes)) data = { pages: 1, strokes: [] };
+const saveNotes = () => saveJSON('notiz-data', data);
+
+let view = { x: 0, y: 0, s: 1 };
+let tool = 'pen';
+let fingerDraws = false;
+
+function fitPage() {
+  const s = Math.min((innerWidth - 40) / PAGE_W, 1.2);
+  view.s = s;
+  view.x = (innerWidth - PAGE_W * s) / 2;
+  view.y = 90;
+}
+
+function resizeNotebook() {
+  for (const c of [bg, ink]) {
+    c.width = Math.round(innerWidth * dpr);
+    c.height = Math.round(innerHeight * dpr);
+  }
+  drawAll();
+}
+
+function applyT(ctx) {
+  ctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.x, dpr * view.y);
+}
+function toWorld(x, y) {
+  return [(x - view.x) / view.s, (y - view.y) / view.s];
+}
+
+function pageLines(page) {
+  const top = page * (PAGE_H + GAP);
+  const ys = [];
+  for (let y = top + LINE * 3; y < top + PAGE_H - 10; y += LINE) ys.push(y);
+  return ys;
+}
+
+function drawBg() {
+  bctx.setTransform(1, 0, 0, 1, 0, 0);
+  bctx.clearRect(0, 0, bg.width, bg.height);
+  applyT(bctx);
+  for (let i = 0; i < data.pages; i++) {
+    const top = i * (PAGE_H + GAP);
+    bctx.fillStyle = '#fff';
+    bctx.fillRect(0, top, PAGE_W, PAGE_H);
+    bctx.strokeStyle = '#c9d7ee';
+    bctx.lineWidth = 1 / view.s;
+    for (const y of pageLines(i)) {
+      bctx.beginPath(); bctx.moveTo(0, y); bctx.lineTo(PAGE_W, y); bctx.stroke();
+    }
+    bctx.strokeStyle = '#b8bcc4';
+    bctx.strokeRect(0, top, PAGE_W, PAGE_H);
+  }
+}
+
+function drawInk() {
+  ictx.setTransform(1, 0, 0, 1, 0, 0);
+  ictx.clearRect(0, 0, ink.width, ink.height);
+  applyT(ictx);
+  for (const st of data.strokes) drawStroke(ictx, st, 1);
+}
+
+function drawAll() { drawBg(); drawInk(); }
+
+let raf = 0;
+function requestDraw() {
+  if (raf) return;
+  raf = requestAnimationFrame(() => { raf = 0; drawAll(); });
+}
+
+// --- Eingabe Notizbuch ---
+const touches = new Map();
+let cur = null;
+let gesture = null;
+
+function gestureState() {
+  const pts = [...touches.values()];
+  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+  const d = pts.length > 1 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) : 0;
+  return { cx, cy, d };
+}
+function startGesture() {
+  gesture = touches.size ? { start: gestureState(), v: { ...view } } : null;
+}
+function addPoint(e) {
+  const [x, y] = toWorld(e.clientX, e.clientY);
+  cur.st.p.push([r1(x), r1(y), r2(pressureOf(e))]);
+}
+
+ink.addEventListener('pointerdown', e => {
+  ink.setPointerCapture(e.pointerId);
+  const isTouch = e.pointerType === 'touch';
+  if (e.pointerType === 'pen') penSeen = true;
+  if (isTouch) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  const canDraw = !isTouch || (fingerDraws && touches.size === 1);
+  if (canDraw && !cur) {
+    const st = { t: tool === 'eraser' ? 'e' : 'p', w: tool === 'eraser' ? ERASER_W : PEN_W, p: [] };
+    data.strokes.push(st);
+    cur = { id: e.pointerId, st, touch: isTouch };
+    addPoint(e);
+    applyT(ictx);
+    drawStroke(ictx, st, 0);
+    return;
+  }
+  if (isTouch) {
+    if (cur && cur.touch) { data.strokes.pop(); cur = null; requestDraw(); }
+    startGesture();
+  }
+});
+
+ink.addEventListener('pointermove', e => {
+  if (cur && e.pointerId === cur.id) {
+    const from = cur.st.p.length;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    for (const ev of (evs.length ? evs : [e])) addPoint(ev);
+    applyT(ictx);
+    drawStroke(ictx, cur.st, from);
+    return;
+  }
+  if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!gesture) return;
+    const g = gestureState(), s0 = gesture.start, v0 = gesture.v;
+    let s = (s0.d > 0 && g.d > 0) ? v0.s * g.d / s0.d : v0.s;
+    s = Math.min(6, Math.max(0.25, s));
+    const wx = (s0.cx - v0.x) / v0.s, wy = (s0.cy - v0.y) / v0.s;
+    view.s = s;
+    view.x = g.cx - wx * s;
+    view.y = g.cy - wy * s;
+    requestDraw();
+  }
+});
+
+function endPointer(e) {
+  if (cur && e.pointerId === cur.id) { cur = null; saveNotes(); }
+  if (touches.has(e.pointerId)) { touches.delete(e.pointerId); startGesture(); }
+}
+ink.addEventListener('pointerup', endPointer);
+ink.addEventListener('pointercancel', endPointer);
+ink.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+ink.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (e.ctrlKey) {
+    const s = Math.min(6, Math.max(0.25, view.s * Math.exp(-e.deltaY * 0.01)));
+    const [wx, wy] = toWorld(e.clientX, e.clientY);
+    view.s = s;
+    view.x = e.clientX - wx * s;
+    view.y = e.clientY - wy * s;
+  } else {
+    view.x -= e.deltaX;
+    view.y -= e.deltaY;
+  }
+  requestDraw();
+}, { passive: false });
+
+// --- Knöpfe Notizbuch ---
+function setTool(t) {
+  tool = t;
+  $('pen').classList.toggle('on', t === 'pen');
+  $('eraser').classList.toggle('on', t === 'eraser');
+}
+$('pen').onclick = () => setTool('pen');
+$('eraser').onclick = () => setTool('eraser');
+$('undo').onclick = () => {
+  // eingefügter Text wird als Ganzes rückgängig gemacht
+  const last = data.strokes[data.strokes.length - 1];
+  if (last && last.g) {
+    while (data.strokes.length && data.strokes[data.strokes.length - 1].g === last.g) data.strokes.pop();
+  } else {
+    data.strokes.pop();
+  }
+  saveNotes(); requestDraw();
+};
+$('addPage').onclick = () => { data.pages++; saveNotes(); requestDraw(); };
+$('finger').onclick = () => {
+  fingerDraws = !fingerDraws;
+  $('finger').textContent = fingerDraws ? '☝️ Finger: Schreiben' : '☝️ Finger: Bewegen';
+  $('finger').classList.toggle('on', fingerDraws);
+};
+$('clear').onclick = async () => {
+  if (!await ask({ text: 'Ganzes Notizbuch löschen?', ok: 'Löschen', danger: true })) return;
+  data = { pages: 1, strokes: [] }; saveNotes(); fitPage(); requestDraw();
+};
+
+// =====================================================================
+//  Dialoge und Hinweise (eigene, weil Browser-Popups nicht überall gehen)
+// =====================================================================
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ask({ text, input, value, ok, danger, validate }) -> Promise: Text / true / null
+function ask(opts) {
+  return new Promise(resolve => {
+    const m = $('modal'), inp = $('mInput'), err = $('mErr');
+    $('mText').textContent = opts.text;
+    inp.style.display = opts.input ? 'block' : 'none';
+    inp.value = opts.value || '';
+    err.textContent = '';
+    $('mOk').textContent = opts.ok || 'OK';
+    $('mOk').className = 'btn ' + (opts.danger ? 'dangerfill' : 'primary');
+    $('mCancel').style.display = opts.noCancel ? 'none' : '';
+    m.classList.add('show');
+    if (opts.input) setTimeout(() => { inp.focus(); inp.select(); }, 50);
+    const close = v => {
+      m.classList.remove('show');
+      $('mOk').onclick = $('mCancel').onclick = inp.onkeydown = null;
+      resolve(v);
+    };
+    $('mOk').onclick = () => {
+      if (!opts.input) return close(true);
+      const v = inp.value.trim();
+      const problem = !v ? 'Bitte gib einen Namen ein.' : (opts.validate ? opts.validate(v) : '');
+      if (problem) { err.textContent = problem; return; }
+      close(v);
+    };
+    $('mCancel').onclick = () => close(null);
+    inp.onkeydown = e => { if (e.key === 'Enter') $('mOk').click(); };
+  });
+}
+
+// =====================================================================
+//  Zeichenfeld (für Buchstaben und Sätze)
+// =====================================================================
+function makePad(canvas, opts) {
+  const ctx = canvas.getContext('2d');
+  const pad = { strokes: [], cur: null, k: 1 };
+  const setT = () => ctx.setTransform(dpr * pad.k, 0, 0, dpr * pad.k, 0, 0);
+  pad.redraw = () => {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setT();
+    opts.guides(ctx, pad);
+    ctx.setLineDash([]);
+    for (const st of pad.strokes) drawStroke(ctx, st, 1);
+  };
+  pad.resize = (cssW, cssH, k) => {
+    pad.k = k;
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    pad.redraw();
+  };
+  pad.clear = () => { pad.strokes = []; pad.cur = null; pad.redraw(); };
+  pad.undo = () => { pad.strokes.pop(); pad.redraw(); };
+
+  const add = e => {
+    const r = canvas.getBoundingClientRect();
+    pad.cur.st.p.push([r1((e.clientX - r.left) / pad.k), r1((e.clientY - r.top) / pad.k), r2(pressureOf(e))]);
+  };
+  canvas.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'pen') penSeen = true;
+    if (e.pointerType === 'touch' && penSeen) return;   // Handballen ignorieren
+    if (pad.cur) return;
+    canvas.setPointerCapture(e.pointerId);
+    const st = { t: 'p', w: opts.w, p: [] };
+    pad.strokes.push(st);
+    pad.cur = { id: e.pointerId, st };
+    add(e);
+    setT();
+    drawStroke(ctx, st, 0);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!pad.cur || e.pointerId !== pad.cur.id) return;
+    const from = pad.cur.st.p.length;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+    for (const ev of (evs.length ? evs : [e])) add(ev);
+    setT();
+    drawStroke(ctx, pad.cur.st, from);
+  });
+  const end = e => { if (pad.cur && e.pointerId === pad.cur.id) pad.cur = null; };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+  return pad;
+}
+
+function hLine(ctx, k, y, x2, color, dashed) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5 / k;
+  ctx.setLineDash(dashed ? [6 / k, 6 / k] : []);
+  ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(x2, y); ctx.stroke();
+}
+
+// =====================================================================
+//  Schrift anlernen
+// =====================================================================
+// Kasten 300 x 300 Einheiten mit Hilfslinien
+const BOX = 300, ASC = 40, XH = 110, BASE = 200, DESC = 260;
+const TARGET = 2, MAX_SAMPLES = 5, TRAIN_W = 9;
+const CHARS = [
+  ...'abcdefghijklmnopqrstuvwxyz',
+  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  ...'äöüÄÖÜß',
+  ...'0123456789',
+  ...'.,!?-:;()"\'/+=%&'
+];
+const SENTENCES = [
+  'Heute ist ein schöner Tag.',
+  'Wir lernen zusammen für die Prüfung.',
+  'Franz jagt quer durch Bayern.',
+  'Mein kleiner Hund mag Äpfel.',
+  'Vögel fliegen über das weite Meer.',
+  'Jeder Text sieht jetzt aus wie meiner.'
+];
+const SENT_TARGET = 3, SENT_ROWS = 3;
+
+// --- Profile: { profiles: { Name: { Zeichen: [Proben], __cal: {...} } }, active, conv } ---
+const isObj = o => o && typeof o === 'object' && !Array.isArray(o);
+let store = loadJSON('notiz-profiles', null);
+if (!isObj(store) || !isObj(store.profiles) || !Object.keys(store.profiles).length) {
+  const old = loadJSON('notiz-glyphs', null);   // Schrift aus der allerersten Version übernehmen
+  store = { profiles: { 'Meine Schrift': isObj(old) ? old : {} }, active: 'Meine Schrift', conv: 'Meine Schrift' };
+}
+for (const n of Object.keys(store.profiles)) if (!isObj(store.profiles[n])) store.profiles[n] = {};
+if (!store.profiles[store.active]) store.active = Object.keys(store.profiles)[0];
+if (!store.profiles[store.conv]) store.conv = store.active;
+const saveStore = () => saveJSON('notiz-profiles', store);
+saveStore();
+
+let glyphs = store.profiles[store.active];
+const countOf = c => (Array.isArray(glyphs[c]) ? glyphs[c].length : 0);
+const lettersDone = g => CHARS.filter(c => Array.isArray(g[c]) && g[c].length >= TARGET).length;
+const sentencesDone = g => (g.__cal && Array.isArray(g.__cal.sent)) ? g.__cal.sent.length : 0;
+const hasAnyGlyph = g => CHARS.some(c => Array.isArray(g[c]) && g[c].length);
+
+function uniqueName(base) {
+  let name = base, i = 2;
+  while (store.profiles[name]) name = `${base} (${i++})`;
+  return name;
+}
+const nameTaken = except => v => (v !== except && store.profiles[v]) ? 'Ein Profil mit dem Namen gibt es schon.' : '';
+
+function refreshProfiles() {
+  const names = Object.keys(store.profiles);
+  const fill = (sel, selected) => {
+    sel.innerHTML = '';
+    for (const n of names) {
+      const o = document.createElement('option');
+      o.value = n;
+      o.textContent = `${n} (${lettersDone(store.profiles[n])}/${CHARS.length})`;
+      o.selected = n === selected;
+      sel.appendChild(o);
+    }
+  };
+  fill($('profSel'), store.active);
+  fill($('convSel'), store.conv);
+}
+
+function renameProfile(oldName, newName) {
+  const rebuilt = {};   // Reihenfolge der Profile beibehalten
+  for (const k of Object.keys(store.profiles)) rebuilt[k === oldName ? newName : k] = store.profiles[k];
+  store.profiles = rebuilt;
+  if (store.active === oldName) store.active = newName;
+  if (store.conv === oldName) store.conv = newName;
+}
+
+function switchProfile(name) {
+  store.active = name;
+  glyphs = store.profiles[name];
+  saveStore();
+  curChar = CHARS.find(c => countOf(c) < TARGET) || CHARS[0];
+  sentIdx = sentencesDone(glyphs) % SENTENCES.length;
+  tPad.clear();
+  sPad.clear();
+  $('sentResult').textContent = '';
+  updateTrainer();
+}
+
+$('profSel').onchange = e => switchProfile(e.target.value);
+$('profNew').onclick = async () => {
+  const n = await ask({ text: 'Name für das neue Profil:', input: true, value: uniqueName('Neue Schrift'), ok: 'Anlegen', validate: nameTaken() });
+  if (!n) return;
+  store.profiles[n] = {};
+  switchProfile(n);
+  toast(`Profil „${n}“ angelegt`);
+};
+$('profRename').onclick = async () => {
+  const old = store.active;
+  const n = await ask({ text: 'Neuer Name für dieses Profil:', input: true, value: old, ok: 'Umbenennen', validate: nameTaken(old) });
+  if (!n || n === old) return;
+  renameProfile(old, n);
+  switchProfile(n);
+  toast(`Umbenannt in „${n}“`);
+};
+$('profDel').onclick = async () => {
+  if (Object.keys(store.profiles).length === 1) {
+    await ask({ text: 'Das ist dein einziges Profil. Leg erst ein neues an, dann kannst du dieses löschen.', noCancel: true });
+    return;
+  }
+  const gone = store.active;
+  if (!await ask({ text: `Profil „${gone}“ mit allen Proben löschen?`, ok: 'Löschen', danger: true })) return;
+  delete store.profiles[gone];
+  const next = Object.keys(store.profiles)[0];
+  if (store.conv === gone) store.conv = next;
+  switchProfile(next);
+  toast(`Profil „${gone}“ gelöscht`);
+};
+
+// --- Schritt 1: Buchstaben ---
+let curChar = CHARS.find(c => countOf(c) < TARGET) || CHARS[0];
+
+// In welche Bereiche gehört ein Zeichen? (oben = Oberlänge, mitte = x-Höhe, unten = Unterlänge)
+function zonesOf(c) {
+  const up = /[A-ZÄÖÜbdfhkltßäöüij0-9!?"'\/()%&]/.test(c);
+  const down = /[gjpqy,;()\/]/.test(c);
+  const mid = !/["']/.test(c);
+  return { up, mid, down };
+}
+
+function zoneHint(c) {
+  const z = zonesOf(c);
+  if (c === '.' ) return 'Kleiner Punkt, sitzt auf der Grundlinie.';
+  if (c === ',' || c === ';') return 'Sitzt auf der Grundlinie, das Komma geht etwas nach unten.';
+  if (!z.mid) return 'Ganz oben, zwischen Oberlinie und Mittellinie.';
+  if (/[äöü]/.test(c)) return 'Buchstabe im mittleren Bereich, Punkte darüber.';
+  if (/[ij]/.test(c)) return 'Punkt oben' + (z.down ? ', Unterlänge nach unten bis zur Unterlinie.' : ', der Rest im mittleren Bereich.');
+  if (z.up && z.down) return 'Von der Oberlinie bis runter zur Unterlinie.';
+  if (z.up) return 'Von der Oberlinie bis zur Grundlinie.';
+  if (z.down) return 'Mittlerer Bereich, Unterlänge bis zur Unterlinie.';
+  return 'Nur im mittleren Bereich, zwischen Mittellinie und Grundlinie.';
+}
+
+// zeichnet eine Schreibzeile (Bereiche + Linien) mit Oberkante y0
+function drawWritingRow(ctx, k, y0, W, z, labels, compact) {
+  const band = (from, to, on) => {
+    ctx.fillStyle = on ? '#dbeafe' : (compact ? '#ffffff' : '#f8fafc');
+    ctx.fillRect(0, y0 + from, W, to - from);
+  };
+  band(ASC, XH, z.up);
+  band(XH, BASE, z.mid);
+  band(BASE, DESC, z.down);
+
+  hLine(ctx, k, y0 + ASC, W, compact ? '#cbd5e1' : '#94a3b8', !!compact);
+  hLine(ctx, k, y0 + XH, W, '#60a5fa', true);
+  ctx.setLineDash([]);
+  ctx.strokeStyle = '#1d4ed8';
+  ctx.lineWidth = 3 / k;
+  ctx.beginPath(); ctx.moveTo(0, y0 + BASE); ctx.lineTo(W, y0 + BASE); ctx.stroke();
+  hLine(ctx, k, y0 + DESC, W, compact ? '#cbd5e1' : '#94a3b8', !!compact);
+
+  if (labels) {
+    ctx.setLineDash([]);
+    ctx.font = `${12 / k}px -apple-system, system-ui, sans-serif`;
+    ctx.textBaseline = 'bottom';
+    const lab = (y, t, col) => { ctx.fillStyle = col; ctx.fillText(t, 6 / k, y0 + y - 3 / k); };
+    if (!compact) lab(ASC, 'Oberlinie', '#64748b');
+    lab(XH, 'Mittellinie', '#3b82f6');
+    lab(BASE, 'Grundlinie', '#1d4ed8');
+    if (!compact) lab(DESC, 'Unterlinie', '#64748b');
+  }
+}
+
+// Beispielzeichen blass ins Feld legen, passend zu den Linien
+let showExample = false;
+const EX_FONT = '"Noteworthy", "Bradley Hand", "Segoe Print", "Comic Sans MS", -apple-system, system-ui, sans-serif';
+let exScale = null;
+function drawExample(ctx, c, cx) {
+  if (exScale === null) {   // Schriftgröße so wählen, dass ein „x“ genau zwischen Mittellinie und Grundlinie passt
+    ctx.font = `100px ${EX_FONT}`;
+    ctx.textBaseline = 'alphabetic';
+    const m = ctx.measureText('x');
+    exScale = 100 * (BASE - XH) / (m.actualBoundingBoxAscent || 50);
+  }
+  ctx.save();
+  ctx.font = `${exScale}px ${EX_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = 'rgba(30, 41, 59, 0.22)';
+
+  // Oberlängen bis zur Oberlinie und Unterlängen bis zur Unterlinie strecken,
+  // der mittlere Teil bleibt unverändert (Schriftarten haben kürzere Ober-/Unterlängen als unsere Linien)
+  const m = ctx.measureText(c);
+  const asc = m.actualBoundingBoxAscent || 0, desc = m.actualBoundingBoxDescent || 0;
+  const xh = BASE - XH;
+  const stretchUp = /[A-ZÄÖÜbdfhklt0-9ß!?\/()%&"']/.test(c) && asc > xh + 8;
+  const stretchDown = /[gjpqy()\/]/.test(c) && desc > 8;
+  const fu = stretchUp ? Math.min(2.5, (BASE - ASC - xh) / (asc - xh)) : 1;
+  const fd = stretchDown ? Math.min(2.5, (DESC - BASE) / desc) : 1;
+
+  const part = (y1, y2, anchor, f) => {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(cx - BOX, y1, BOX * 2, y2 - y1); ctx.clip();
+    ctx.translate(0, anchor); ctx.scale(1, f); ctx.translate(0, -anchor);
+    ctx.fillText(c, cx, BASE);
+    ctx.restore();
+  };
+  part(-BOX, XH, XH, fu);        // oberer Teil
+  part(XH, BASE, BASE, 1);       // Mitte
+  part(BASE, BOX * 2, BASE, fd); // unterer Teil
+  ctx.restore();
+}
+
+const tPad = makePad($('trainCanvas'), {
+  w: TRAIN_W,
+  guides: (ctx, pad) => {
+    drawWritingRow(ctx, pad.k, 0, pad.width || BOX, zonesOf(curChar), pad.k >= 0.3);
+    if (showExample) drawExample(ctx, curChar, 150);
+  }
+});
+
+$('lsNormal').onclick = () => setLineSize('normal');
+$('lsBig').onclick = () => setLineSize('big');
+$('exBtn').onclick = () => {
+  showExample = !showExample;
+  $('exBtn').classList.toggle('on', showExample);
+  $('exBtn').textContent = showExample ? '💡 Beispiel an' : '💡 Beispiel';
+  tPad.redraw();
+};
+
+function charKind(c) {
+  if (/[0-9]/.test(c)) return 'Ziffer';
+  if (c.toLowerCase() !== c.toUpperCase() || c === 'ß') {
+    return c === c.toLowerCase() ? 'Kleinbuchstabe' : 'Großbuchstabe';
+  }
+  return 'Satzzeichen';
+}
+
+function nextNeeded(from) {
+  const i = CHARS.indexOf(from);
+  for (let k = 1; k <= CHARS.length; k++) {
+    const c = CHARS[(i + k) % CHARS.length];
+    if (countOf(c) < TARGET) return c;
+  }
+  return null;
+}
+
+function goTo(c) { curChar = c; tPad.clear(); updateTrainer(); }
+
+function saveSample() {
+  if (!tPad.strokes.length) { toast('Schreib zuerst das Zeichen ins Feld.'); return; }
+  // Striche nach waagerechten Lücken in einzelne Zeichen aufteilen
+  const ext = tPad.strokes.filter(st => st.p.length).map(st => {
+    let mn = Infinity, mx = -Infinity;
+    for (const p of st.p) { mn = Math.min(mn, p[0]); mx = Math.max(mx, p[0]); }
+    return { st, mn, mx };
+  }).sort((a, b) => a.mn - b.mn);
+  const minGap = curChar === '"' ? 90 : 45;
+  const groups = [];
+  for (const e of ext) {
+    const g = groups[groups.length - 1];
+    if (g && e.mn <= g.mx + minGap) { g.items.push(e.st); g.mx = Math.max(g.mx, e.mx); }
+    else groups.push({ items: [e.st], mn: e.mn, mx: e.mx });
+  }
+  if (!Array.isArray(glyphs[curChar])) glyphs[curChar] = [];
+  for (const g of groups) {
+    glyphs[curChar].push({ s: g.items.map(st => st.p), minX: r1(g.mn), maxX: r1(g.mx) });
+  }
+  while (glyphs[curChar].length > MAX_SAMPLES) glyphs[curChar].shift();
+  saveStore();
+  tPad.clear();
+  toast(groups.length === 1 ? '1 Probe gespeichert' : `${groups.length} Proben gespeichert`);
+  if (countOf(curChar) >= TARGET) curChar = nextNeeded(curChar) || curChar;
+  updateTrainer();
+}
+
+const cells = {};
+function buildGrid() {
+  const grid = $('grid');
+  for (const c of CHARS) {
+    const d = document.createElement('div');
+    d.className = 'cell';
+    d.textContent = c;
+    d.onclick = () => goTo(c);
+    grid.appendChild(d);
+    cells[c] = d;
+  }
+}
+
+$('tSave').onclick = saveSample;
+$('tClear').onclick = () => tPad.clear();
+$('tUndo').onclick = () => tPad.undo();
+$('tSkip').onclick = () => goTo(CHARS[(CHARS.indexOf(curChar) + 1) % CHARS.length]);
+$('tPrev').onclick = () => goTo(CHARS[(CHARS.indexOf(curChar) - 1 + CHARS.length) % CHARS.length]);
+$('tDelete').onclick = async () => {
+  if (!countOf(curChar)) return;
+  if (!await ask({ text: `Alle Proben von „${curChar}“ löschen?`, ok: 'Löschen', danger: true })) return;
+  delete glyphs[curChar]; saveStore(); updateTrainer();
+};
+
+// --- Schritt 2: Sätze ---
+// Ein Satzfeld hat SENT_ROWS Zeilen, jede Zeile nutzt dieselben Einheiten wie der Buchstabenkasten.
+const LINE_SIZES = { normal: 0.2, big: 0.34 };   // Pixel pro Einheit: „normal“ ≈ Kleinbuchstaben so hoch wie in GoodNotes
+let lineSize = loadJSON('notiz-linesize', 'normal');
+if (!LINE_SIZES[lineSize]) lineSize = 'normal';
+const lineK = () => LINE_SIZES[lineSize];
+function setLineSize(v) {
+  lineSize = v;
+  saveJSON('notiz-linesize', v);
+  $('lsNormal').classList.toggle('on', v === 'normal');
+  $('lsBig').classList.toggle('on', v === 'big');
+  sizeTrainer();
+}
+let sentIdx = sentencesDone(glyphs) % SENTENCES.length;
+
+const sPad = makePad($('sentCanvas'), {
+  w: TRAIN_W,
+  guides: (ctx, pad) => {
+    const W = pad.width || 2000;
+    const all = { up: false, mid: true, down: false };   // Kleinbuchstaben-Bereich blau, Rest hell
+    for (let r = 0; r < SENT_ROWS; r++) drawWritingRow(ctx, pad.k, r * BOX, W, all, r === 0, true);
+  }
+});
+
+const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+const median = a => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const glyphWidth = arr => avg(arr.map(s => s.maxX - s.minX));
+
+function measureSentence(text, strokes, g) {
+  // Striche den Zeilen zuordnen und je Zeile die waagerechten Tinten-Abschnitte bestimmen
+  const rows = Array.from({ length: SENT_ROWS }, () => []);
+  for (const st of strokes) {
+    if (!st.p.length) continue;
+    const my = avg(st.p.map(p => p[1]));
+    const r = clamp(Math.floor(my / BOX), 0, SENT_ROWS - 1);
+    let mn = Infinity, mx = -Infinity;
+    for (const p of st.p) { mn = Math.min(mn, p[0]); mx = Math.max(mx, p[0]); }
+    rows[r].push([mn, mx]);
+  }
+  const gaps = [];
+  let inkTotal = 0, rowsUsed = 0;
+  for (const iv of rows) {
+    if (!iv.length) continue;
+    rowsUsed++;
+    iv.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    let [s0, e0] = iv[0];
+    for (const [s, e] of iv.slice(1)) {
+      if (s <= e0 + 2) e0 = Math.max(e0, e);
+      else { merged.push([s0, e0]); s0 = s; e0 = e; }
+    }
+    merged.push([s0, e0]);
+    for (let i = 1; i < merged.length; i++) gaps.push(merged[i][0] - merged[i - 1][1]);
+    inkTotal += merged[merged.length - 1][1] - merged[0][0];
+  }
+  const words = text.split(/\s+/).filter(Boolean);
+  const nWordGaps = words.length - rowsUsed;
+  if (!rowsUsed || nWordGaps < 1 || gaps.length < nWordGaps) return null;
+
+  // die größten Lücken sind die Wortabstände
+  const wordGaps = [...gaps].sort((a, b) => b - a).slice(0, nWordGaps);
+  const wordInk = inkTotal - wordGaps.reduce((a, b) => a + b, 0);
+
+  // wie breit wären die Wörter mit den angelernten Buchstaben?
+  const known = CHARS.filter(c => Array.isArray(g[c]) && g[c].length);
+  if (!known.length) return null;
+  const avgW = avg(known.map(c => glyphWidth(g[c])));
+  let sumW = 0, pairs = 0, hits = 0, letters = 0;
+  for (const w of words) {
+    const chs = [...w];
+    pairs += chs.length - 1;
+    for (const ch of chs) {
+      letters++;
+      const arr = [ch, ch.toLowerCase(), ch.toUpperCase()].map(c => g[c]).find(a => Array.isArray(a) && a.length);
+      if (arr) { sumW += glyphWidth(arr); hits++; } else sumW += avgW;
+    }
+  }
+  const gap = clamp((wordInk - sumW) / Math.max(1, pairs), -25, 70);
+  const space = clamp(median(wordGaps) - gap, 20, 220);
+  return { gap: r1(gap), space: r1(space), coverage: hits / letters };
+}
+
+function sizeSentence() {
+  const cssW = Math.max(260, Math.min(728, innerWidth - 64));
+  const k = lineK();
+  sPad.width = cssW / k;
+  sPad.resize(cssW, SENT_ROWS * BOX * k, k);
+}
+
+function describeCal(cal) {
+  const g = cal.gap < GAP_U - 6 ? 'eher eng' : cal.gap > GAP_U + 10 ? 'eher locker' : 'normal';
+  const s = cal.space < SPACE_U - 15 ? 'eher klein' : cal.space > SPACE_U + 25 ? 'eher groß' : 'normal';
+  return `Buchstabenabstand ${g}, Wortabstände ${s}.`;
+}
+
+function saveSentence() {
+  if (!sPad.strokes.length) { toast('Schreib zuerst den Satz ins Feld.'); return; }
+  if (!hasAnyGlyph(glyphs)) { toast('Lern zuerst in Schritt 1 die Buchstaben an.'); return; }
+  const text = SENTENCES[sentIdx];
+  const m = measureSentence(text, sPad.strokes, glyphs);
+  if (!m) {
+    toast('Satz konnte nicht ausgewertet werden. Lass zwischen den Wörtern deutlich Platz.');
+    return;
+  }
+  if (!isObj(glyphs.__cal)) glyphs.__cal = { sent: [] };
+  if (!Array.isArray(glyphs.__cal.sent)) glyphs.__cal.sent = [];
+  glyphs.__cal.sent.push({ text, gap: m.gap, space: m.space });
+  if (glyphs.__cal.sent.length > 8) glyphs.__cal.sent.shift();
+  glyphs.__cal.gap = r1(median(glyphs.__cal.sent.map(x => x.gap)));
+  glyphs.__cal.space = r1(median(glyphs.__cal.sent.map(x => x.space)));
+  saveStore();
+  sPad.clear();
+  sentIdx = (sentIdx + 1) % SENTENCES.length;
+  $('sentResult').textContent = 'Gemessen: ' + describeCal(glyphs.__cal) +
+    (m.coverage < 0.7 ? ' (Viele Buchstaben aus dem Satz fehlen noch in Schritt 1, die Messung ist deshalb ungenauer.)' : '');
+  updateTrainer();
+}
+
+$('sSave').onclick = saveSentence;
+$('sClear').onclick = () => sPad.clear();
+$('sUndo').onclick = () => sPad.undo();
+$('sSkip').onclick = () => { sentIdx = (sentIdx + 1) % SENTENCES.length; sPad.clear(); updateTrainer(); };
+
+// --- Schritt 3: Speichern ---
+$('profSave').onclick = async () => {
+  const old = store.active;
+  const n = await ask({ text: 'Unter welchem Namen soll das Profil gespeichert werden?', input: true, value: old, ok: 'Speichern', validate: nameTaken(old) });
+  if (!n) return;
+  if (n !== old) renameProfile(old, n);
+  saveStore();
+  switchProfile(n);
+  $('doneMsg').textContent = `✓ Profil „${n}“ gespeichert. Du findest es unter „Umwandeln“.`;
+  toast(`Profil „${n}“ gespeichert`);
+};
+
+// --- Anzeige ---
+function sizeTrainer() {
+  const cssW = Math.max(260, Math.min(728, innerWidth - 64));
+  const k = lineK();
+  tPad.width = cssW / k;
+  tPad.resize(cssW, BOX * k, k);
+  sizeSentence();
+}
+
+function updateTrainer() {
+  $('charLabel').textContent = curChar;
+  const n = countOf(curChar);
+  $('charInfo').textContent = charKind(curChar) + ' · ' +
+    (n < TARGET ? `${n} von ${TARGET} Proben` : `fertig (${n} Proben) – du kannst noch mehr hinzufügen`);
+  $('charHint').textContent = zoneHint(curChar);
+  const done = lettersDone(glyphs);
+  for (const c of CHARS) {
+    const k = countOf(c);
+    cells[c].className = 'cell' + (k >= TARGET ? ' done' : k > 0 ? ' part' : '') + (c === curChar ? ' cur' : '');
+  }
+  $('progress').textContent = `${done} von ${CHARS.length} Zeichen angelernt`;
+
+  const sd = sentencesDone(glyphs);
+  $('sentPrompt').textContent = '„' + SENTENCES[sentIdx] + '“';
+  $('sentInfo').textContent = sd < SENT_TARGET ? `Satz ${sd + 1} von ${SENT_TARGET}` : `${sd} Sätze geschrieben – fertig, mehr Sätze machen es genauer`;
+
+  const parts = [
+    `Buchstaben: ${done} von ${CHARS.length}`,
+    `Sätze: ${Math.min(sd, SENT_TARGET)} von ${SENT_TARGET}`
+  ];
+  const complete = done === CHARS.length && sd >= SENT_TARGET;
+  $('saveStatus').textContent = parts.join(' · ') + (complete
+    ? ' – alles erledigt.'
+    : ' – du kannst trotzdem schon speichern, fehlende Zeichen bleiben beim Umwandeln als Lücke.');
+  refreshProfiles();
+  tPad.redraw();
+}
+
+// --- Export / Import ---
+$('exportBtn').onclick = async () => {
+  const json = JSON.stringify({ v: 3, name: store.active, glyphs });
+  const fname = 'schrift-' + store.active.replace(/[^\wäöüÄÖÜß-]+/g, '_') + '.json';
+  const file = new File([json], fname, { type: 'application/json' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: store.active });
+      return;
+    }
+  } catch (e) { if (e.name === 'AbortError') return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = fname;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+};
+$('importBtn').onclick = () => $('importFile').click();
+$('importFile').onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const obj = JSON.parse(await f.text());
+    if (!obj || !isObj(obj.glyphs)) throw new Error('falsches Format');
+    const base = (typeof obj.name === 'string' && obj.name.trim()) || f.name.replace(/\.json$/i, '');
+    const name = uniqueName(base);
+    store.profiles[name] = obj.glyphs;
+    switchProfile(name);
+    toast(`Profil „${name}“ importiert`);
+  } catch (err) {
+    toast('Die Datei konnte nicht gelesen werden.');
+  }
+};
+
+// =====================================================================
+//  Umwandeln
+// =====================================================================
+const SIZES = { small: { s: 0.145, step: 1 }, large: { s: 0.29, step: 2 } };
+const GAP_U = 16, SPACE_U = 70;
+let sizeKey = 'small';
+let seed = Math.floor(Math.random() * 1e9);
+
+function rng(seedVal) {   // kleiner Zufallsgenerator mit festem Startwert (Vorschau = Einfügen)
+  let a = seedVal >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const convGlyphs = () => store.profiles[store.conv] || {};
+
+function getSample(ch, rnd, g) {
+  let arr = g[ch];
+  if (!arr || !arr.length) {
+    const alt = ch === ch.toLowerCase() ? ch.toUpperCase() : ch.toLowerCase();
+    if (alt.length === 1) arr = g[alt];
+  }
+  if (!arr || !arr.length) return null;
+  return arr[Math.floor(rnd() * arr.length)];
+}
+
+function layoutText(text) {
+  const { s } = SIZES[sizeKey];
+  const rnd = rng(seed);
+  const g = convGlyphs();
+  // gemessene Abstände aus den Sätzen, sonst Standardwerte
+  const cal = isObj(g.__cal) ? g.__cal : {};
+  const GAPX = typeof cal.gap === 'number' ? cal.gap : GAP_U;
+  const SPACEX = typeof cal.space === 'number' ? cal.space : SPACE_U;
+  const maxW = PAGE_W - 2 * MARGIN;
+  const missing = new Set();
+  const lines = [];
+  for (const para of text.replace(/\r/g, '').split('\n')) {
+    let line = [], w = 0;
+    for (const word of para.split(/[ \t]+/)) {
+      if (!word) continue;
+      const items = [...word].map(ch => {
+        const sm = getSample(ch, rnd, g);
+        if (!sm) { missing.add(ch); return { sm: null, adv: SPACEX * s }; }
+        const j = { rot: (rnd() - 0.5) * 0.06, sc: 1 + (rnd() - 0.5) * 0.08, dy: (rnd() - 0.5) * 5, dx: (rnd() - 0.5) * 5 };
+        return { sm, j, adv: ((sm.maxX - sm.minX) * j.sc + GAPX + j.dx) * s };
+      });
+      const ww = items.reduce((a, b) => a + b.adv, 0);
+      if (line.length && w + SPACEX * s + ww > maxW) { lines.push(line); line = []; w = 0; }
+      if (line.length) { line.push({ sm: null, adv: SPACEX * s }); w += SPACEX * s; }
+      line.push(...items);
+      w += ww;
+    }
+    lines.push(line);
+  }
+  return { lines, missing, s };
+}
+
+function glyphStrokes(item, x, baseline, s, groupId) {
+  const { sm, j } = item;
+  const sc = s * j.sc;
+  const cx = (sm.maxX - sm.minX) / 2;
+  const cos = Math.cos(j.rot), sin = Math.sin(j.rot);
+  const w = PEN_W * (s / SIZES.small.s);
+  return sm.s.map(pts => ({
+    t: 'p', w, g: groupId,
+    p: pts.map(([px, py, pr]) => {
+      const lx = px - sm.minX - cx, ly = py - BASE;
+      const rx = lx * cos - ly * sin, ry = lx * sin + ly * cos;
+      return [r1(x + (rx + cx) * sc), r1(baseline + ry * sc + j.dy * s), pr];
+    })
+  }));
+}
+
+function renderLayout(L, baselineFor, groupId) {
+  const out = [];
+  L.lines.forEach((line, i) => {
+    const b = baselineFor(i);
+    let x = MARGIN;
+    for (const it of line) {
+      if (it.sm) out.push(...glyphStrokes(it, x, b, L.s, groupId));
+      x += it.adv;
+    }
+  });
+  return out;
+}
+
+const pv = $('preview'), pctx = pv.getContext('2d');
+
+function updatePreview() {
+  const text = $('convText').value;
+  const cg = convGlyphs();
+  const anyGlyphs = Object.keys(cg).some(c => cg[c] && cg[c].length);
+  const L = layoutText(text);
+  const step = SIZES[sizeKey].step;
+
+  $('missing').textContent = L.missing.size
+    ? 'Noch nicht angelernt (wird als Lücke gelassen): ' + [...L.missing].join(' ')
+    : '';
+  $('previewMsg').textContent = !anyGlyphs
+    ? `Das Profil „${store.conv}“ ist noch leer. Lern zuerst ein paar Buchstaben unter „Anlernen“ an.`
+    : (!text.trim() ? 'Schreib oben etwas rein.' : '');
+
+  const first = LINE * (1 + step);
+  const n = Math.max(1, L.lines.length);
+  const H = first + (n - 1) * LINE * step + LINE * 2;
+  const cssW = pv.clientWidth || 600;
+  const ps = cssW / PAGE_W;
+  pv.style.height = (H * ps) + 'px';
+  pv.width = Math.round(cssW * dpr);
+  pv.height = Math.round(H * ps * dpr);
+
+  pctx.setTransform(dpr * ps, 0, 0, dpr * ps, 0, 0);
+  pctx.clearRect(0, 0, PAGE_W, H);
+  pctx.strokeStyle = '#c9d7ee';
+  pctx.lineWidth = 1 / ps;
+  for (let y = LINE * 2; y < H; y += LINE) {
+    pctx.beginPath(); pctx.moveTo(0, y); pctx.lineTo(PAGE_W, y); pctx.stroke();
+  }
+  const strokes = renderLayout(L, i => first + i * LINE * step, 0);
+  for (const st of strokes) drawStroke(pctx, st, 1);
+}
+
+function insertIntoNotebook() {
+  const L = layoutText($('convText').value);
+  if (!L.lines.some(l => l.some(it => it.sm))) return;
+  const { s, step } = SIZES[sizeKey];
+
+  // unter das bisher Geschriebene setzen
+  let maxY = -Infinity;
+  for (const st of data.strokes) if (st.t === 'p') for (const p of st.p) maxY = Math.max(maxY, p[1]);
+  const PH = PAGE_H + GAP;
+  let page = maxY === -Infinity ? 0 : Math.max(0, Math.floor(maxY / PH));
+  let ys = pageLines(page);
+  const minB = maxY === -Infinity ? -Infinity : maxY + (BASE - ASC) * s + 6;
+  let idx = ys.findIndex(y => y >= minB);
+  if (idx === -1) { page++; ys = pageLines(page); idx = step - 1; }
+  else idx = Math.max(idx, step - 1);
+
+  const baselines = [];
+  for (let i = 0; i < L.lines.length; i++) {
+    if (idx >= ys.length) { page++; ys = pageLines(page); idx = step - 1; }
+    baselines.push(ys[idx]);
+    idx += step;
+  }
+  data.pages = Math.max(data.pages, page + 1);
+  data.strokes.push(...renderLayout(L, i => baselines[i], Date.now()));
+  saveNotes();
+
+  showMode('note');
+  view.y = 120 - (baselines[0] - LINE * 2) * view.s;
+  requestDraw();
+}
+
+let pvRaf = 0;
+$('convText').addEventListener('input', () => {
+  if (pvRaf) return;
+  pvRaf = requestAnimationFrame(() => { pvRaf = 0; updatePreview(); });
+});
+function setSize(k) {
+  sizeKey = k;
+  $('sizeSmall').classList.toggle('on', k === 'small');
+  $('sizeLarge').classList.toggle('on', k === 'large');
+  updatePreview();
+}
+$('sizeSmall').onclick = () => setSize('small');
+$('sizeLarge').onclick = () => setSize('large');
+$('reroll').onclick = () => { seed = Math.floor(Math.random() * 1e9); updatePreview(); };
+$('insertBtn').onclick = insertIntoNotebook;
+$('convSel').onchange = e => { store.conv = e.target.value; saveStore(); updatePreview(); };
+
+// =====================================================================
+//  Modi
+// =====================================================================
+let mode = 'note';
+function showMode(m) {
+  mode = m;
+  $('trainPanel').classList.toggle('show', m === 'train');
+  $('convPanel').classList.toggle('show', m === 'conv');
+  $('bar').style.display = m === 'note' ? 'flex' : 'none';
+  $('mTrain').classList.toggle('on', m === 'train');
+  $('mConv').classList.toggle('on', m === 'conv');
+  $('mNote').classList.toggle('on', m === 'note');
+  if (m === 'train') { sizeTrainer(); updateTrainer(); }
+  if (m === 'conv') { refreshProfiles(); updatePreview(); }
+  if (m === 'note') requestDraw();
+}
+$('mTrain').onclick = () => showMode('train');
+$('mConv').onclick = () => showMode('conv');
+$('mNote').onclick = () => showMode('note');
+
+window.addEventListener('resize', () => {
+  dpr = window.devicePixelRatio || 1;
+  resizeNotebook();
+  if (mode === 'train') sizeTrainer();
+  if (mode === 'conv') updatePreview();
+});
+
+// Start
+$('lsNormal').classList.toggle('on', lineSize === 'normal');
+$('lsBig').classList.toggle('on', lineSize === 'big');
+buildGrid();
+fitPage();
+resizeNotebook();
+refreshProfiles();
+const hasGlyphs = Object.values(store.profiles).some(hasAnyGlyph);
+showMode(hasGlyphs ? 'conv' : 'train');
+</script>
+</body>
+</html>
